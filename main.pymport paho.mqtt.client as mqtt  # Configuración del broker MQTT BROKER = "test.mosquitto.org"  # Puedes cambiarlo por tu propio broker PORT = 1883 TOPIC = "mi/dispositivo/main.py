@@ -1,37 +1,59 @@
+import asyncio
+import websockets
 import paho.mqtt.client as mqtt
+import json
+from datetime import datetime
 
-# Configuración del broker MQTT (igual que el emisor)
-BROKER = "broker.hivemq.com"
-PORT = 1883
-TOPIC = "mi/dispositivo/valor"
+# MQTT Broker settings
+MQTT_BROKER = "broker.hivemq.com"  # Public broker, replace with your own if needed
+MQTT_PORT = 1883
+MQTT_TOPIC = "render/messages"
 
-# Función que se ejecuta al recibir un mensaje
-def on_message(client, userdata, msg):
-    mensaje = msg.payload.decode("utf-8")  # Decodifica el mensaje recibido
-    print(f"Mensaje recibido en {msg.topic}: {mensaje}")
+# MQTT Client setup
+mqtt_client = mqtt.Client()
 
-# Función que se ejecuta al conectar
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Conectado al broker MQTT")
-        client.subscribe(TOPIC)  # Suscribirse al tópico
+        print("Connected to MQTT Broker!")
     else:
-        print(f"Error de conexión con código {rc}")
+        print(f"Failed to connect, return code {rc}")
 
-# Crear cliente MQTT
-client = mqtt.Client()
-client.on_connect = on_connect
-client.on_message = on_message
+def on_publish(client, userdata, mid):
+    print(f"Message published with mid: {mid}")
 
-# Conectar al broker
-client.connect(BROKER, PORT, 60)
-client.loop_start()  # Inicia el loop para escuchar mensajes
+mqtt_client.on_connect = on_connect
+mqtt_client.on_publish = on_publish
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
+mqtt_client.loop_start()  # Start the loop to process MQTT messages
 
-# Mantener el programa corriendo
-try:
-    while True:
-        pass  # Mantener el script activo para recibir mensajes
-except KeyboardInterrupt:
-    print("\nDesconectando...")
-    client.loop_stop()
-    client.disconnect()
+# WebSocket handler
+async def handle_message(websocket, path):
+    try:
+        async for message in websocket:
+            print(f"Received message: {message}")
+            
+            # Prepare data to send via MQTT
+            data = {
+                "message": message,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Publish to MQTT
+            mqtt_client.publish(MQTT_TOPIC, json.dumps(data))
+            await websocket.send(f"Echo: {message} - Sent to MQTT")
+    except websockets.ConnectionClosed:
+        print("Client disconnected")
+
+# Start WebSocket server
+async def main():
+    server = await websockets.serve(
+        handle_message,
+        "0.0.0.0",  # Listen on all interfaces
+        8000        # Port (Render will override with $PORT if set in environment)
+    )
+    print("WebSocket server started on port 8000")
+    await server.wait_closed()
+
+# Run the server
+if __name__ == "__main__":
+    asyncio.run(main())
