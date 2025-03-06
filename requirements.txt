@@ -1,1 +1,4 @@
 paho-mqtt
+gunicorn
+uvicorn
+flask    # Si estás usando Flask
